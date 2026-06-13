@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { api, ApiError, sleep } from "../api";
+import { api, ApiError, chatSocketUrl } from "../api";
 import type { MatchItem, Message, User } from "../types";
 import { Banner, distanceLabel, dogEmoji, Empty, SIZE_KO, Stars, TEMPER_KO, Verified } from "../ui";
 
@@ -75,26 +75,55 @@ function MatchCard({
 function Chat({ matchId, userId }: { matchId: number; userId: number }) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [text, setText] = useState("");
+  const [live, setLive] = useState(false);
   const boxRef = useRef<HTMLDivElement>(null);
+  const wsRef = useRef<WebSocket | null>(null);
 
+  const upsert = (msg: Message) =>
+    setMessages((prev) => (prev.some((m) => m.id === msg.id) ? prev : [...prev, msg]));
+
+  // Load history once via REST, then open the live socket.
   useEffect(() => {
     let alive = true;
-    async function loop() {
-      while (alive) {
-        try {
-          const m = await api.messages(matchId);
-          if (alive) setMessages(m);
-        } catch {
-          /* ignore transient */
-        }
-        await sleep(2500);
+    api.messages(matchId).then((m) => alive && setMessages(m)).catch(() => {});
+
+    const ws = new WebSocket(chatSocketUrl(matchId));
+    wsRef.current = ws;
+    ws.onopen = () => alive && setLive(true);
+    ws.onmessage = (e) => {
+      try {
+        upsert(JSON.parse(e.data) as Message);
+      } catch {
+        /* ignore malformed frame */
       }
-    }
-    loop();
+    };
+    ws.onclose = () => alive && setLive(false);
+    ws.onerror = () => {};
+
     return () => {
       alive = false;
+      ws.close();
+      wsRef.current = null;
     };
   }, [matchId]);
+
+  // Graceful fallback: poll history whenever the socket isn't live.
+  useEffect(() => {
+    if (live) return;
+    let alive = true;
+    const t = setInterval(async () => {
+      try {
+        const m = await api.messages(matchId);
+        if (alive) setMessages(m);
+      } catch {
+        /* ignore */
+      }
+    }, 3000);
+    return () => {
+      alive = false;
+      clearInterval(t);
+    };
+  }, [live, matchId]);
 
   useEffect(() => {
     boxRef.current?.scrollTo(0, boxRef.current.scrollHeight);
@@ -105,15 +134,26 @@ function Chat({ matchId, userId }: { matchId: number; userId: number }) {
     const body = text.trim();
     if (!body) return;
     setText("");
-    const msg = await api.sendMessage(matchId, body);
-    setMessages((prev) => [...prev, msg]);
+    const ws = wsRef.current;
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ body })); // server echoes it back with its id
+    } else {
+      upsert(await api.sendMessage(matchId, body));
+    }
   }
 
   return (
     <div>
-      <div className="section-title">채팅</div>
+      <div className="row" style={{ justifyContent: "space-between" }}>
+        <div className="section-title">채팅</div>
+        <span className="muted" style={{ fontSize: 12 }}>
+          {live ? "🟢 실시간 연결됨" : "⚪ 연결 중…"}
+        </span>
+      </div>
       <div className="chat" ref={boxRef}>
-        {messages.length === 0 && <div className="muted" style={{ fontSize: 13 }}>첫 메시지를 보내보세요 👋</div>}
+        {messages.length === 0 && (
+          <div className="muted" style={{ fontSize: 13 }}>첫 메시지를 보내보세요 👋</div>
+        )}
         {messages.map((msg) => (
           <div key={msg.id} className={`msg ${msg.senderId === userId ? "mine" : ""}`}>
             {msg.body}

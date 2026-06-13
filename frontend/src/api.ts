@@ -18,6 +18,14 @@ export function setToken(token: string | null): void {
   else localStorage.removeItem(TOKEN_KEY);
 }
 
+/** Same-origin WebSocket URL for a match's chat room. The token rides as a query
+ *  param because the browser WebSocket API can't set an Authorization header. */
+export function chatSocketUrl(matchId: number): string {
+  const proto = location.protocol === "https:" ? "wss" : "ws";
+  const token = getToken() ?? "";
+  return `${proto}://${location.host}/api/v1/matches/${matchId}/ws?token=${encodeURIComponent(token)}`;
+}
+
 export class ApiError extends Error {
   constructor(public status: number, public code: string, message: string) {
     super(message);

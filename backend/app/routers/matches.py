@@ -7,13 +7,16 @@ and escaped at render time (React escapes by default); the API never reflects
 them as HTML.
 """
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query, WebSocket, WebSocketDisconnect
 from sqlalchemy import or_, select, update
 from sqlalchemy.orm import Session
+from starlette.concurrency import run_in_threadpool
 
+from app.core import database
 from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.core.errors import AppError
+from app.core.security import decode_token
 from app.models import Dog, Match, MeetingPlace, Message, User, WalkRequest
 from app.schemas import (
     AcceptIn,
@@ -23,6 +26,7 @@ from app.schemas import (
     MessageIn,
     MessageOut,
 )
+from app.services.ws import manager
 
 router = APIRouter(prefix="/api/v1/matches", tags=["matches"])
 
@@ -147,3 +151,71 @@ def send_message(
     db.commit()
     db.refresh(msg)
     return msg
+
+
+# --- Real-time chat over WebSocket (design §1.2 step 4 / §5: 채팅 p95 < 1s) -----
+#
+# The browser WebSocket API can't send an Authorization header, so the access
+# token is passed as a query param and verified at handshake. DB work is sync,
+# so it's pushed off the event loop via run_in_threadpool.
+
+
+def _authorize_socket(token: str | None, match_id: int) -> int | None:
+    """Return the participant's user id, or None to reject. All failure reasons
+    collapse to None so we don't leak which check failed."""
+    if not token:
+        return None
+    db = database.SessionLocal()
+    try:
+        try:
+            payload = decode_token(token, "access")
+        except Exception:
+            return None
+        user = db.get(User, int(payload["sub"]))
+        if user is None or user.deleted_at is not None or user.status == "disabled":
+            return None
+        match = db.get(Match, match_id)
+        if match is None or match.state != "confirmed":
+            return None
+        req = db.get(WalkRequest, match.request_id)
+        if req is None or user.id not in (req.requester_id, match.candidate_user_id):
+            return None
+        return user.id
+    finally:
+        db.close()
+
+
+def _persist_message(match_id: int, sender_id: int, body: str) -> dict:
+    db = database.SessionLocal()
+    try:
+        msg = Message(match_id=match_id, sender_id=sender_id, body=body)
+        db.add(msg)
+        db.commit()
+        db.refresh(msg)
+        return MessageOut.model_validate(msg).model_dump(by_alias=True, mode="json")
+    finally:
+        db.close()
+
+
+@router.websocket("/{match_id}/ws")
+async def chat_socket(
+    websocket: WebSocket, match_id: int, token: str | None = Query(default=None)
+):
+    user_id = await run_in_threadpool(_authorize_socket, token, match_id)
+    if user_id is None:
+        await websocket.close(code=1008)  # policy violation
+        return
+
+    await manager.connect(match_id, websocket)
+    try:
+        while True:
+            data = await websocket.receive_json()
+            body = (data.get("body", "") if isinstance(data, dict) else "").strip()
+            if not body:
+                continue
+            payload = await run_in_threadpool(_persist_message, match_id, user_id, body[:2000])
+            await manager.broadcast(match_id, payload)
+    except WebSocketDisconnect:
+        pass
+    finally:
+        manager.disconnect(match_id, websocket)
