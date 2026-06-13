@@ -69,8 +69,36 @@ npm run dev                            # http://localhost:5173
 
 ```bash
 cd backend && source .venv/bin/activate
-pytest                                 # 26 passed — 인증/CRUD/비동기 매칭/프라이버시/신고차단/단위
+pytest                                 # 29 passed — 인증/CRUD/비동기매칭/WebSocket채팅/프라이버시/신고차단/단위
 ```
+
+---
+
+## 모바일 앱 (iOS · Android)
+
+웹과 **동일한 React 코드**를 [Capacitor](https://capacitorjs.com)로 감싸 네이티브 iOS·Android 앱으로
+빌드한다. 네이티브에서는 데모 위치 대신 **실제 GPS**(`@capacitor/geolocation`)를 쓰고, 채팅은 그대로
+WebSocket으로 동작한다.
+
+```bash
+cd frontend
+# 1) 디바이스에서 닿는 백엔드 주소로 웹 자산 빌드
+#    iOS 시뮬레이터: localhost · Android 에뮬레이터: 10.0.2.2 · 실기기: LAN IP/배포 URL
+VITE_API_BASE=http://localhost:8200 npm run build
+npx cap sync
+
+# 2) iOS — Xcode 필요
+npx cap open ios          # Xcode에서 Run, 또는:
+xcodebuild -project ios/App/App.xcodeproj -scheme App -sdk iphonesimulator build
+
+# 3) Android — Android SDK + JDK 17/21 필요
+npx cap open android      # Android Studio에서 Run, 또는:
+( cd android && ./gradlew assembleDebug )   # → app/build/outputs/apk/debug/app-debug.apk
+```
+
+- `appId` `com.petwalk.app`. 위치 권한 문구(iOS Info.plist)·권한(Android Manifest)·dev 클리어텍스트 포함.
+- 백엔드 CORS가 Capacitor 오리진(`capacitor://localhost`, `http(s)://localhost`)을 허용.
+- 빌드 검증 완료: **Android `app-debug.apk`(4.7MB)** · **iOS 시뮬레이터 `App.app`** 모두 컴파일 성공.
 
 ---
 
@@ -87,9 +115,12 @@ backend/
   tests/         pytest (in-process, 임시 파일 SQLite)
 frontend/
   src/
-    api.ts       토큰 저장 + 타입드 fetch 클라이언트
-    tabs/        DogsTab · FindTab(요청→진행률→매칭→수락) · MatchesTab(채팅·후기·신고)
+    api.ts       토큰 저장 + 타입드 fetch/WS 클라이언트 (VITE_API_BASE로 웹·네이티브 전환)
+    location.ts  네이티브 GPS(@capacitor/geolocation) · 데모 좌표 폴백
+    tabs/        DogsTab · FindTab(요청→진행률→매칭→수락) · MatchesTab(WebSocket 채팅·후기·신고)
     App.tsx      인증 + 셸 + 탭
+  capacitor.config.ts   appId com.petwalk.app
+  ios/ android/         Capacitor 네이티브 프로젝트 (cap add 생성, 빌드 검증 완료)
 ```
 
 > 분산 모델(Tauri 사이드카로 로컬 백엔드 번들)은 [PlanForge](../planforge)와 동일 패턴으로 확장 가능.

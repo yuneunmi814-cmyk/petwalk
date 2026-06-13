@@ -5,6 +5,7 @@ import { DogsTab } from "./tabs/DogsTab";
 import { FindTab } from "./tabs/FindTab";
 import { MatchesTab } from "./tabs/MatchesTab";
 import { Banner } from "./ui";
+import { DEMO_LAT, DEMO_LNG, getDeviceLocation, isNative } from "./location";
 
 type Tab = "dogs" | "find" | "matches";
 
@@ -91,9 +92,6 @@ function Shell({
   );
 }
 
-const DEMO_LAT = 37.5172;
-const DEMO_LNG = 127.0473;
-
 function AuthView({ onAuthed }: { onAuthed: (u: User) => void }) {
   const [mode, setMode] = useState<"login" | "signup">("signup");
   const [email, setEmail] = useState("");
@@ -109,12 +107,15 @@ function AuthView({ onAuthed }: { onAuthed: (u: User) => void }) {
     setBusy(true);
     try {
       if (mode === "signup") {
-        const res = await api.signup({
-          email,
-          password,
-          displayName,
-          ...(useDemoLoc ? { lat: DEMO_LAT, lng: DEMO_LNG } : {}),
-        });
+        let loc: { lat: number; lng: number } | undefined;
+        if (useDemoLoc) {
+          try {
+            loc = isNative() ? await getDeviceLocation() : { lat: DEMO_LAT, lng: DEMO_LNG };
+          } catch {
+            loc = { lat: DEMO_LAT, lng: DEMO_LNG }; // GPS denied/timeout → demo fallback
+          }
+        }
+        const res = await api.signup({ email, password, displayName, ...(loc ?? {}) });
         setToken(res.accessToken);
         onAuthed(res.user);
       } else {
@@ -165,7 +166,9 @@ function AuthView({ onAuthed }: { onAuthed: (u: User) => void }) {
           {mode === "signup" && (
             <label className="row" style={{ fontSize: 13, color: "var(--muted)", marginBottom: 12 }}>
               <input type="checkbox" checked={useDemoLoc} onChange={(e) => setUseDemoLoc(e.target.checked)} />
-              내 동네를 강남 데모 위치로 설정 (주변 메이트 바로 보기)
+              {isNative()
+                ? "현재 위치(GPS)로 주변 메이트 찾기"
+                : "내 동네를 강남 데모 위치로 설정 (주변 메이트 바로 보기)"}
             </label>
           )}
           <button className="btn btn-primary btn-block" disabled={busy}>

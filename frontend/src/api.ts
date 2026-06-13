@@ -10,6 +10,11 @@ import type {
 
 const TOKEN_KEY = "petwalk.token";
 
+// Web build: empty → same-origin relative paths (Vite/nginx proxy).
+// Native build: set VITE_API_BASE (e.g. http://10.0.2.2:8200 for the Android
+// emulator, http://localhost:8200 for the iOS simulator, or your deployed URL).
+const API_BASE = (import.meta.env.VITE_API_BASE ?? "").replace(/\/$/, "");
+
 export function getToken(): string | null {
   return localStorage.getItem(TOKEN_KEY);
 }
@@ -21,9 +26,12 @@ export function setToken(token: string | null): void {
 /** Same-origin WebSocket URL for a match's chat room. The token rides as a query
  *  param because the browser WebSocket API can't set an Authorization header. */
 export function chatSocketUrl(matchId: number): string {
-  const proto = location.protocol === "https:" ? "wss" : "ws";
   const token = getToken() ?? "";
-  return `${proto}://${location.host}/api/v1/matches/${matchId}/ws?token=${encodeURIComponent(token)}`;
+  // Derive ws(s) from the API base when set (native), else from the page origin.
+  const base = API_BASE
+    ? API_BASE.replace(/^http/, "ws")
+    : `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}`;
+  return `${base}/api/v1/matches/${matchId}/ws?token=${encodeURIComponent(token)}`;
 }
 
 export class ApiError extends Error {
@@ -40,7 +48,7 @@ async function req<T>(path: string, opts: RequestInit = {}): Promise<T> {
   const token = getToken();
   if (token) headers["Authorization"] = `Bearer ${token}`;
 
-  const res = await fetch(path, { ...opts, headers });
+  const res = await fetch(API_BASE + path, { ...opts, headers });
   const text = await res.text();
   const data = text ? JSON.parse(text) : null;
   if (!res.ok) {

@@ -2,9 +2,7 @@ import { useState } from "react";
 import { api } from "../api";
 import type { Dog, User } from "../types";
 import { Banner, dogEmoji, SIZE_KO, TEMPER_KO } from "../ui";
-
-const DEMO_LAT = 37.5172;
-const DEMO_LNG = 127.0473;
+import { DEMO_LAT, DEMO_LNG, getDeviceLocation, isNative } from "../location";
 
 export function DogsTab({
   user,
@@ -43,8 +41,17 @@ export function DogsTab({
     await reloadDogs();
   }
 
-  async function setDemoLocation() {
-    onUser(await api.setLocation(DEMO_LAT, DEMO_LNG));
+  async function setMyLocation() {
+    let lat = DEMO_LAT;
+    let lng = DEMO_LNG;
+    if (isNative()) {
+      try {
+        ({ lat, lng } = await getDeviceLocation());
+      } catch {
+        /* GPS denied/timeout → keep demo fallback */
+      }
+    }
+    onUser(await api.setLocation(lat, lng));
   }
 
   return (
@@ -67,8 +74,8 @@ export function DogsTab({
             </>
           )}
         </p>
-        <button className="btn btn-ghost btn-sm" style={{ marginTop: 8 }} onClick={setDemoLocation}>
-          📍 내 동네를 강남 데모 위치로 설정
+        <button className="btn btn-ghost btn-sm" style={{ marginTop: 8 }} onClick={setMyLocation}>
+          {isNative() ? "📍 현재 위치(GPS)로 설정" : "📍 내 동네를 강남 데모 위치로 설정"}
         </button>
       </div>
 
