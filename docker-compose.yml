@@ -1,0 +1,33 @@
+# One-command local stack: `docker compose up --build`
+#   web  → http://localhost:8080   (nginx serves the SPA, proxies /api → backend)
+#   api  → http://localhost:8200   (FastAPI, /docs for the OpenAPI UI)
+services:
+  backend:
+    build: ./backend
+    image: petwalk-backend
+    environment:
+      PETWALK_DATABASE_URL: sqlite:////data/petwalk.db
+      # Override these in real deployments (see backend/.env.example).
+      PETWALK_JWT_SECRET: ${PETWALK_JWT_SECRET:-dev-secret-change-me-in-production-0123456789abcdef}
+      PETWALK_AES_KEY_HEX: ${PETWALK_AES_KEY_HEX:-0000000000000000000000000000000000000000000000000000000000000000}
+    volumes:
+      - petwalk-data:/data
+    ports:
+      - "8200:8200"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8200/health').status==200 else 1)"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  web:
+    build: ./frontend
+    image: petwalk-web
+    ports:
+      - "8080:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+
+volumes:
+  petwalk-data:
