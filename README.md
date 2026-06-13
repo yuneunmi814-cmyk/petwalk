@@ -96,9 +96,30 @@ npx cap open android      # Android Studio에서 Run, 또는:
 ( cd android && ./gradlew assembleDebug )   # → app/build/outputs/apk/debug/app-debug.apk
 ```
 
-- `appId` `com.petwalk.app`. 위치 권한 문구(iOS Info.plist)·권한(Android Manifest)·dev 클리어텍스트 포함.
+- `appId` `com.petwalk.app`. 위치 권한 문구(iOS Info.plist)·권한(Android Manifest)·dev 클리어텍스트·mixed-content(Android) 설정 포함.
 - 백엔드 CORS가 Capacitor 오리진(`capacitor://localhost`, `http(s)://localhost`)을 허용.
-- 빌드 검증 완료: **Android `app-debug.apk`(4.7MB)** · **iOS 시뮬레이터 `App.app`** 모두 컴파일 성공.
+
+### 실제 구동 검증
+
+iPhone 17 시뮬레이터와 Pixel 7 에뮬레이터에 실제 설치·구동했다. Android는 에뮬레이터 GPS를 강남으로
+설정해 **가입 → 백엔드(`10.0.2.2:8200`) → 주변 메이트 로드**까지 확인(아래 오른쪽).
+
+| iOS — 가입 화면 (네이티브 GPS 라벨) | Android — 가입 후 홈 (실데이터) |
+|:---:|:---:|
+| <img src="docs/screenshots/ios-signup.png" width="240" alt="iOS"> | <img src="docs/screenshots/android-home.png" width="240" alt="Android"> |
+
+### 릴리스 빌드 (Android)
+
+서명 설정은 `android/keystore.properties`(gitignore)에서 읽는다.
+
+```bash
+cp android/keystore.properties.example android/keystore.properties   # 값 채우기
+keytool -genkeypair -v -keystore android/petwalk-release.keystore -alias petwalk -keyalg RSA -keysize 2048 -validity 10000
+( cd android && ./gradlew assembleRelease bundleRelease )
+#  → app-release.apk (서명됨, 4.4MB) · app-release.aab (Play Console 업로드용, 4.1MB)
+```
+
+APK 서명 검증 완료(V2 Signer, `CN=PetWalk`). **iOS 릴리스**는 Apple Developer 계정($99/년) + Xcode 서명이 필요.
 
 ---
 

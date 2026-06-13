@@ -9,6 +9,11 @@ const config: CapacitorConfig = {
     // capacitor://localhost. The backend CORS allows both.
     androidScheme: "https",
   },
+  android: {
+    // Dev only: the https://localhost WebView calls a cleartext dev backend
+    // (http://10.0.2.2:8200). Drop this when the backend is served over HTTPS.
+    allowMixedContent: true,
+  },
 };
 
 export default config;
